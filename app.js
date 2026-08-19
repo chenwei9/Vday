@@ -164,30 +164,22 @@ function lmToScreen(lm) {
 }
 
 function metrics(lms) {
-  const points = lms.map(lm => lmToScreen(lm));
-
-  const p5 = points[5];
-  const p9 = points[9];
-  const p13 = points[13];
-  const p17 = points[17];
-
-  const palmWidth = Math.hypot(
-    p5.x - p17.x,
-    p5.y - p17.y
-  );
-
-  // 四個指根的中心
-  const x =
-    (p5.x + p9.x + p13.x + p17.x) / 4;
-
-  const y =
-    (p5.y + p9.y + p13.y + p17.y) / 4;
+  const wrist = lmToScreen(lms[0]);
+  const mid = lmToScreen(lms[9]);
+  const index = lmToScreen(lms[5]);
+  const pinky = lmToScreen(lms[17]);
 
   return {
-    x,
-    // 再往拳頭上方偏一點
-    y: y - palmWidth * 0.45,
-    width: palmWidth
+    x: (wrist.x + mid.x + index.x + pinky.x) / 4,
+    y: (wrist.y + mid.y + index.y + pinky.y) / 4,
+    width: Math.hypot(
+      index.x - pinky.x,
+      index.y - pinky.y
+    ),
+    angle: Math.atan2(
+      mid.y - wrist.y,
+      mid.x - wrist.x
+    )
   };
 }
 
@@ -254,7 +246,7 @@ function updateGesture(result) {
 
   const isFist =
     top?.categoryName === "Closed_Fist" &&
-    top.score > 0.5;
+    top.score > 0.35;
 
   const m = metrics(result.landmarks[0]);
 
