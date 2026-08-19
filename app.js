@@ -669,8 +669,8 @@ function drawBouquet(m) {
 
   // 拳頭的位置
   ctx.translate(
-    m.x,
-    m.y + m.width * 0.15
+    m.x - 40,
+    m.y + m.width * 0.15 + 50
   );
 
   // 花出現動畫
