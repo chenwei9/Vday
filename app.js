@@ -164,61 +164,72 @@ function lmToScreen(lm) {
 }
 
 function metrics(lms) {
-  const wrist = lmToScreen(lms[0]);
-  const mid = lmToScreen(lms[9]);
-  const index = lmToScreen(lms[5]);
-  const pinky = lmToScreen(lms[17]);
+  const points = lms.map(lm => lmToScreen(lm));
+
+  const p5 = points[5];
+  const p9 = points[9];
+  const p13 = points[13];
+  const p17 = points[17];
 
   const palmWidth = Math.hypot(
-    index.x - pinky.x,
-    index.y - pinky.y
+    p5.x - p17.x,
+    p5.y - p17.y
   );
 
-  // 拳眼朝上：
-  // 畫面 y 越小代表越上方
-  // 食指側明顯比小指側高，就視為拳眼朝上
-  const fistEyeUp =
-    index.y < pinky.y - palmWidth * 0.25;
+  // 四個指根的中心
+  const x =
+    (p5.x + p9.x + p13.x + p17.x) / 4;
+
+  const y =
+    (p5.y + p9.y + p13.y + p17.y) / 4;
 
   return {
-    x: (wrist.x + mid.x + index.x + pinky.x) / 4,
-    y: (wrist.y + mid.y + index.y + pinky.y) / 4,
-    width: palmWidth,
-    angle: Math.atan2(mid.y - wrist.y, mid.x - wrist.x),
-    fistEyeUp
+    x,
+    // 再往拳頭上方偏一點
+    y: y - palmWidth * 0.45,
+    width: palmWidth
   };
 }
 
 function drawBouquet(m) {
-  flowerScale += ((flowerVisible ? 1 : 0) - flowerScale) * 0.18;
+  flowerScale +=
+    ((flowerVisible ? 1 : 0) - flowerScale) * 0.15;
 
   if (flowerScale < 0.02) return;
 
   const h = Math.max(
-    190,
-    Math.min(390, m.width * 5.8)
+    200,
+    Math.min(420, m.width * 6)
   );
 
   const w = h * 0.62;
 
   ctx.save();
 
-  // 花束底部固定在拳頭中心
+  // 拳頭頂端
   ctx.translate(
     m.x,
-    m.y + m.width * 0.15
+    m.y + m.width * 0.1
   );
 
-  // 不跟手旋轉，花永遠朝上
+  // 從小長大
   ctx.scale(
     flowerScale,
     flowerScale
   );
 
+  /*
+    圖片底端落在拳頭上，
+    所以整束花往上畫
+  */
   ctx.drawImage(
     bouquet,
+
     -w / 2,
-    -h * 0.91,
+
+    // 控制花束高度
+    -h * 0.96,
+
     w,
     h
   );
@@ -247,12 +258,7 @@ function updateGesture(result) {
 
   const m = metrics(result.landmarks[0]);
 
-  // 必須同時：
-  // 1. 握拳
-  // 2. 拳眼朝上
-  const correctPose = isFist && m.fistEyeUp;
-
-  if (correctPose) {
+  if (isFist) {
     fistFrames++;
     openFrames = 0;
 
@@ -272,12 +278,7 @@ function updateGesture(result) {
       flowerVisible = false;
       message.classList.remove("show");
       hint.classList.remove("hidden");
-
-      if (isFist) {
-        hintText.textContent = "把拳眼轉朝上 ✊";
-      } else {
-        hintText.textContent = "先握拳看看 ✊";
-      }
+      hintText.textContent = "握拳看看 ✊";
     }
   }
 
