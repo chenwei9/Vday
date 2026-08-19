@@ -19,4 +19,28 @@ button:disabled{opacity:.6}
 .message p{margin:0 0 5px;text-transform:uppercase;letter-spacing:.16em;font-size:11px}
 .message h2{margin:0;font-size:clamp(24px,7vw,36px)}
 .error{position:absolute;z-index:30;left:16px;right:16px;bottom:max(20px,env(safe-area-inset-bottom));padding:14px 16px;border-radius:14px;background:rgba(120,0,20,.9);font-size:13px;line-height:1.45}
+.change-flower-btn {
+  position: absolute;
+  z-index: 20;
+
+  right: 20px;
+  bottom: max(
+    120px,
+    calc(env(safe-area-inset-bottom) + 100px)
+  );
+
+  padding: 12px 18px;
+
+  border: none;
+  border-radius: 999px;
+
+  background: rgba(255, 255, 255, 0.9);
+  color: #32111e;
+
+  font-size: 15px;
+  font-weight: 700;
+
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
 @keyframes beat{0%,100%{transform:scale(1)}45%{transform:scale(1.12)}}
