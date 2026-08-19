@@ -15,6 +15,7 @@ const hint = document.querySelector("#hint");
 const hintText = document.querySelector("#hintText");
 const message = document.querySelector("#message");
 const errorBox = document.querySelector("#errorBox");
+const changeFlowerBtn = document.querySelector("#changeFlowerBtn");
 
 let recognizer = null;
 let running = false;
@@ -31,8 +32,16 @@ let flowerScale = 0;
 // 花束
 // ======================================================
 
+const flowerImages = [
+  "./flower1.png",
+  "./flower2.png",
+  "./flower3.png"
+];
+
+let currentFlower = 0;
+
 const bouquet = new Image();
-bouquet.src = "./flower.png";
+bouquet.src = flowerImages[currentFlower];
 
 
 // ======================================================
@@ -223,10 +232,13 @@ async function start() {
 
     await openCameraFirst();
 
+  // 開相機成功
+  intro.classList.add("hide");
+  hint.classList.remove("hidden");
 
-    intro.classList.add("hide");
-
-    hint.classList.remove("hidden");
+  // 第一個按鈕按下、相機成功後
+  // 才顯示換花按鈕
+  changeFlowerBtn.classList.remove("hidden");
 
 
     running = true;
@@ -639,6 +651,19 @@ function isTargetFist(lms) {
 
 }
 
+function changeFlower() {
+  currentFlower =
+    (currentFlower + 1) %
+    flowerImages.length;
+
+  bouquet.src =
+    flowerImages[currentFlower];
+}
+
+changeFlowerBtn.addEventListener(
+  "click",
+  changeFlower
+);
 
 // ======================================================
 // 畫花束
