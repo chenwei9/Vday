@@ -168,26 +168,61 @@ function metrics(lms) {
   const mid = lmToScreen(lms[9]);
   const index = lmToScreen(lms[5]);
   const pinky = lmToScreen(lms[17]);
+
+  const palmWidth = Math.hypot(
+    index.x - pinky.x,
+    index.y - pinky.y
+  );
+
+  // 拳眼朝上：
+  // 畫面 y 越小代表越上方
+  // 食指側明顯比小指側高，就視為拳眼朝上
+  const fistEyeUp =
+    index.y < pinky.y - palmWidth * 0.25;
+
   return {
     x: (wrist.x + mid.x + index.x + pinky.x) / 4,
     y: (wrist.y + mid.y + index.y + pinky.y) / 4,
-    width: Math.hypot(index.x - pinky.x, index.y - pinky.y),
-    angle: Math.atan2(mid.y - wrist.y, mid.x - wrist.x)
+    width: palmWidth,
+    angle: Math.atan2(mid.y - wrist.y, mid.x - wrist.x),
+    fistEyeUp
   };
 }
 
 function drawBouquet(m) {
-  flowerScale += ((flowerVisible ? 1 : 0) - flowerScale) * .18;
-  if (flowerScale < .02) return;
+  flowerScale += ((flowerVisible ? 1 : 0) - flowerScale) * 0.18;
 
-  const h = Math.max(190, Math.min(390, m.width * 5.8));
-  const w = h * .62;
+  if (flowerScale < 0.02) return;
+
+  const h = Math.max(
+    190,
+    Math.min(390, m.width * 5.8)
+  );
+
+  const w = h * 0.62;
 
   ctx.save();
-  ctx.translate(m.x, m.y);
-  ctx.rotate(m.angle + Math.PI / 2);
-  ctx.scale(flowerScale, flowerScale);
-  ctx.drawImage(bouquet, -w / 2, -h * .91, w, h);
+
+  // 花束底部固定在拳頭中心
+  ctx.translate(
+    m.x,
+    m.y + m.width * 0.15
+  );
+
+  // 不跟手旋轉，花永遠朝上
+  ctx.scale(
+    flowerScale,
+    flowerScale
+  );
+
+  ctx.drawImage(
+    bouquet,
+    -w / 2,
+    -h * 0.91,
+    w,
+    h
+  );
+
   ctx.restore();
 }
 
@@ -195,33 +230,54 @@ function updateGesture(result) {
   if (!result?.landmarks?.length) {
     fistFrames = Math.max(0, fistFrames - 2);
     openFrames++;
+
     if (openFrames > 4) {
       flowerVisible = false;
       message.classList.remove("show");
     }
+
     return null;
   }
 
   const top = result.gestures?.[0]?.[0];
-  const isFist = top?.categoryName === "Closed_Fist" && top.score > .5;
+
+  const isFist =
+    top?.categoryName === "Closed_Fist" &&
+    top.score > 0.5;
+
   const m = metrics(result.landmarks[0]);
 
-  if (isFist) {
+  // 必須同時：
+  // 1. 握拳
+  // 2. 拳眼朝上
+  const correctPose = isFist && m.fistEyeUp;
+
+  if (correctPose) {
     fistFrames++;
     openFrames = 0;
+
+    hintText.textContent = "就是這樣 ✨";
+
     if (fistFrames >= 3) {
       flowerVisible = true;
       message.classList.add("show");
       hint.classList.add("hidden");
     }
+
   } else {
     fistFrames = Math.max(0, fistFrames - 1);
     openFrames++;
+
     if (openFrames > 5) {
       flowerVisible = false;
       message.classList.remove("show");
       hint.classList.remove("hidden");
-      hintText.textContent = "握拳看看 ✊";
+
+      if (isFist) {
+        hintText.textContent = "把拳眼轉朝上 ✊";
+      } else {
+        hintText.textContent = "先握拳看看 ✊";
+      }
     }
   }
 
