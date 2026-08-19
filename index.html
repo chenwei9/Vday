@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#12070d" />
+  <title>給你一束花 ❤️</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="app">
+    <video id="video" playsinline webkit-playsinline muted autoplay></video>
+    <canvas id="canvas"></canvas>
+    <div class="shade"></div>
+
+    <section id="intro" class="intro">
+      <div class="heart">♥</div>
+      <h1>有個小東西想送你</h1>
+      <p id="statusText">按下面的按鈕打開鏡頭</p>
+      <button id="startBtn" type="button">打開鏡頭</button>
+      <small id="debugText"></small>
+    </section>
+
+    <div id="hint" class="hint hidden">
+      <span id="hintText">正在載入手勢辨識…</span>
+    </div>
+
+    <section id="message" class="message">
+      <div class="sparkle">✦</div>
+      <p>Happy Valentine's Day</p>
+      <h2>這束花送給你 ❤️</h2>
+    </section>
+
+    <div id="errorBox" class="error hidden"></div>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
