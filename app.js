@@ -3,6 +3,11 @@ import {
   GestureRecognizer
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/+esm";
 
+
+// ======================================================
+// HTML
+// ======================================================
+
 const video = document.querySelector("#video");
 const canvas = document.querySelector("#canvas");
 const ctx = canvas.getContext("2d");
@@ -17,19 +22,43 @@ const message = document.querySelector("#message");
 const errorBox = document.querySelector("#errorBox");
 const changeFlowerBtn = document.querySelector("#changeFlowerBtn");
 
+
+// ======================================================
+// MediaPipe 手勢
+// ======================================================
+
 let recognizer = null;
+
 let running = false;
 let lastVideoTime = -1;
 let lastResult = null;
 
 let fistFrames = 0;
 let openFrames = 0;
+
 let flowerVisible = false;
 let flowerScale = 0;
 
 
 // ======================================================
-// 花束
+// DeepLab 貓分割
+// ======================================================
+
+let catSegmenter = null;
+
+let catSegmenting = false;
+let lastCatSegmentTime = 0;
+let lastCatSeenTime = 0;
+
+// 最後一次找到的「軀體點」
+let catTorsoPoints = [];
+
+// 軀體點平滑用
+let smoothTorsoPoints = [];
+
+
+// ======================================================
+// 花
 // ======================================================
 
 const flowerImages = [
@@ -41,7 +70,28 @@ const flowerImages = [
 let currentFlower = 0;
 
 const bouquet = new Image();
-bouquet.src = flowerImages[currentFlower];
+
+bouquet.src =
+  flowerImages[currentFlower];
+
+
+// ======================================================
+// 鬼針草
+// ======================================================
+
+const burImage = new Image();
+
+burImage.src =
+  "./bur.png";
+
+
+// 最多顯示幾個鬼針草
+const MAX_BURS = 7;
+
+
+// 鬼針草大小
+// 數字越大越大
+const BUR_SIZE = 0.07;
 
 
 // ======================================================
@@ -52,16 +102,122 @@ function showError(msg) {
 
   console.error(msg);
 
-  if (!errorBox) return;
+  if (!errorBox) {
+    return;
+  }
 
-  errorBox.textContent = msg;
-  errorBox.classList.remove("hidden");
+  errorBox.textContent =
+    msg;
+
+  errorBox.classList.remove(
+    "hidden"
+  );
 
 }
 
 
 // ======================================================
-// 開啟手機相機
+// 動態載入 JS
+// ======================================================
+
+function loadScript(src) {
+
+  return new Promise(
+    (resolve, reject) => {
+
+      const existing =
+        document.querySelector(
+          `script[src="${src}"]`
+        );
+
+
+      if (existing) {
+
+        if (
+          existing.dataset.loaded ===
+          "true"
+        ) {
+
+          resolve();
+
+          return;
+
+        }
+
+
+        existing.addEventListener(
+          "load",
+          resolve,
+          {
+            once: true
+          }
+        );
+
+
+        existing.addEventListener(
+          "error",
+          reject,
+          {
+            once: true
+          }
+        );
+
+
+        return;
+
+      }
+
+
+      const script =
+        document.createElement(
+          "script"
+        );
+
+
+      script.src =
+        src;
+
+
+      script.async =
+        true;
+
+
+      script.onload =
+        () => {
+
+          script.dataset.loaded =
+            "true";
+
+          resolve();
+
+        };
+
+
+      script.onerror =
+        () => {
+
+          reject(
+            new Error(
+              "載入失敗：" +
+              src
+            )
+          );
+
+        };
+
+
+      document.head.appendChild(
+        script
+      );
+
+    }
+  );
+
+}
+
+
+// ======================================================
+// 相機
 // ======================================================
 
 async function openCameraFirst() {
@@ -81,7 +237,7 @@ async function openCameraFirst() {
   ) {
 
     throw new Error(
-      "這個瀏覽器沒有提供相機功能。請使用 Safari 開啟。"
+      "這個瀏覽器沒有提供相機功能。"
     );
 
   }
@@ -115,36 +271,46 @@ async function openCameraFirst() {
     });
 
 
-  video.srcObject = stream;
+  video.srcObject =
+    stream;
+
 
   await video.play();
 
 
   if (!video.videoWidth) {
 
-    await new Promise((resolve, reject) => {
+    await new Promise(
+      (resolve, reject) => {
 
-      const timer =
-        setTimeout(() => {
+        const timer =
+          setTimeout(
+            () => {
 
-          reject(
-            new Error(
-              "Safari 沒有開始輸出相機畫面。"
-            )
+              reject(
+                new Error(
+                  "Safari 沒有開始輸出相機。"
+                )
+              );
+
+            },
+            5000
           );
 
-        }, 5000);
 
+        video.onloadedmetadata =
+          () => {
 
-      video.onloadedmetadata = () => {
+            clearTimeout(
+              timer
+            );
 
-        clearTimeout(timer);
+            resolve();
 
-        resolve();
+          };
 
-      };
-
-    });
+      }
+    );
 
   }
 
@@ -155,13 +321,13 @@ async function openCameraFirst() {
 
 
 // ======================================================
-// MediaPipe
+// MediaPipe 手勢模型
 // ======================================================
 
 async function initRecognizer() {
 
   hintText.textContent =
-    "相機已開啟，正在載入手勢辨識…";
+    "正在載入手勢辨識…";
 
 
   const vision =
@@ -184,26 +350,39 @@ async function initRecognizer() {
           modelAssetPath:
             "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task",
 
-          delegate: "CPU"
+          delegate:
+            "CPU"
 
         },
 
 
-        runningMode: "VIDEO",
+        runningMode:
+          "VIDEO",
 
-        numHands: 1,
+
+        numHands:
+          1,
 
 
-        // 稍微降低門檻
-        minHandDetectionConfidence: 0.45,
+        minHandDetectionConfidence:
+          0.45,
 
-        minHandPresenceConfidence: 0.45,
 
-        minTrackingConfidence: 0.45
+        minHandPresenceConfidence:
+          0.45,
+
+
+        minTrackingConfidence:
+          0.45
 
       }
 
     );
+
+
+  console.log(
+    "✅ 手勢辨識完成"
+  );
 
 
   hintText.textContent =
@@ -213,17 +392,108 @@ async function initRecognizer() {
 
 
 // ======================================================
-// 啟動
+// DeepLab 初始化
+// ======================================================
+
+async function initCatSegmenter() {
+
+  try {
+
+    console.log(
+      "開始載入 TensorFlow.js..."
+    );
+
+
+    await loadScript(
+      "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"
+    );
+
+
+    console.log(
+      "✅ TensorFlow.js ready"
+    );
+
+
+    await loadScript(
+      "https://cdn.jsdelivr.net/npm/@tensorflow-models/deeplab@0.2.2/dist/deeplab.min.js"
+    );
+
+
+    console.log(
+      "✅ DeepLab JS ready"
+    );
+
+
+    if (
+      typeof window.deeplab ===
+      "undefined"
+    ) {
+
+      throw new Error(
+        "deeplab 未載入"
+      );
+
+    }
+
+
+    console.log(
+      "開始載入 DeepLab Pascal..."
+    );
+
+
+    catSegmenter =
+      await window.deeplab.load({
+
+        // Pascal 有 cat 類別
+        base:
+          "pascal",
+
+        // 1 最省流量、手機比較輕
+        quantizationBytes:
+          1
+
+      });
+
+
+    console.log(
+      "✅ DeepLab 貓分割模型完成"
+    );
+
+  }
+
+  catch (e) {
+
+    console.error(
+      "❌ DeepLab 載入失敗",
+      e
+    );
+
+
+    showError(
+      "貓辨識載入失敗：" +
+      (e?.message || e)
+    );
+
+  }
+
+}
+
+
+// ======================================================
+// Start
 // ======================================================
 
 async function start() {
 
-  startBtn.disabled = true;
+  startBtn.disabled =
+    true;
 
 
   if (errorBox) {
 
-    errorBox.classList.add("hidden");
+    errorBox.classList.add(
+      "hidden"
+    );
 
   }
 
@@ -232,24 +502,30 @@ async function start() {
 
     await openCameraFirst();
 
-  // 開相機成功
-  intro.classList.add("hide");
-  hint.classList.remove("hidden");
 
-  // 第一個按鈕按下、相機成功後
-  // 才顯示換花按鈕
-  changeFlowerBtn.classList.remove("hidden");
+    intro.classList.add(
+      "hide"
+    );
 
 
-    running = true;
+    hint.classList.remove(
+      "hidden"
+    );
+
+
+    if (changeFlowerBtn) {
+
+      changeFlowerBtn.classList.remove(
+        "hidden"
+      );
+
+    }
 
 
     resizeCanvas();
 
 
-    requestAnimationFrame(loop);
-
-
+    // 手勢先載
     try {
 
       await initRecognizer();
@@ -258,22 +534,34 @@ async function start() {
 
     catch (e) {
 
-      showError(
-        "相機已開啟，但手勢辨識載入失敗：" +
-        (e?.message || e)
+      console.error(
+        "手勢模型失敗",
+        e
       );
 
-
-      hintText.textContent =
-        "手勢辨識載入失敗";
-
     }
+
+
+    // 貓模型背景載入
+    // 不阻塞相機畫面
+    initCatSegmenter();
+
+
+    running =
+      true;
+
+
+    requestAnimationFrame(
+      loop
+    );
 
   }
 
   catch (e) {
 
-    startBtn.disabled = false;
+    startBtn.disabled =
+      false;
+
 
     startBtn.textContent =
       "再試一次";
@@ -295,11 +583,13 @@ async function start() {
 
     showError(
 
-      e?.name === "NotAllowedError"
+      e?.name ===
+      "NotAllowedError"
 
-        ? "Safari 沒有相機權限，請允許網站使用相機。"
+        ? "Safari 沒有相機權限。"
 
-        : e?.name === "NotFoundError"
+        : e?.name ===
+          "NotFoundError"
 
         ? "找不到相機。"
 
@@ -328,45 +618,55 @@ function resizeCanvas() {
 
   canvas.width =
     Math.round(
-      innerWidth * dpr
+      innerWidth *
+      dpr
     );
 
 
   canvas.height =
     Math.round(
-      innerHeight * dpr
+      innerHeight *
+      dpr
     );
 
 
   canvas.style.width =
-    innerWidth + "px";
+    innerWidth +
+    "px";
 
 
   canvas.style.height =
-    innerHeight + "px";
+    innerHeight +
+    "px";
 
 
   ctx.setTransform(
+
     dpr,
+
     0,
+
     0,
+
     dpr,
+
     0,
+
     0
+
   );
 
 }
 
 
 // ======================================================
-// Landmark → 畫面座標
+// 手座標
 // ======================================================
 
 function lmToScreen(lm) {
 
   return {
 
-    // 前鏡頭鏡像
     x:
       (1 - lm.x) *
       innerWidth,
@@ -381,25 +681,33 @@ function lmToScreen(lm) {
 
 
 // ======================================================
-// 計算拳頭位置
+// 拳頭位置
 // ======================================================
 
 function metrics(lms) {
 
   const wrist =
-    lmToScreen(lms[0]);
+    lmToScreen(
+      lms[0]
+    );
 
 
   const mid =
-    lmToScreen(lms[9]);
+    lmToScreen(
+      lms[9]
+    );
 
 
   const index =
-    lmToScreen(lms[5]);
+    lmToScreen(
+      lms[5]
+    );
 
 
   const pinky =
-    lmToScreen(lms[17]);
+    lmToScreen(
+      lms[17]
+    );
 
 
   return {
@@ -431,18 +739,6 @@ function metrics(lms) {
         index.y -
         pinky.y
 
-      ),
-
-
-    angle:
-      Math.atan2(
-
-        mid.y -
-        wrist.y,
-
-        mid.x -
-        wrist.x
-
       )
 
   };
@@ -451,16 +747,18 @@ function metrics(lms) {
 
 
 // ======================================================
-// Landmark 3D 距離
+// Landmark 距離
 // ======================================================
 
 function dist(a, b) {
 
   return Math.hypot(
 
-    a.x - b.x,
+    a.x -
+    b.x,
 
-    a.y - b.y,
+    a.y -
+    b.y,
 
     (a.z || 0) -
     (b.z || 0)
@@ -471,11 +769,7 @@ function dist(a, b) {
 
 
 // ======================================================
-// 自訂「寬鬆拳頭」判斷
-//
-// 主要就是要辨識 👊 這種拳頭。
-// 不要求拳頭方向。
-// 不要求完全握緊。
+// 寬鬆拳頭
 // ======================================================
 
 function isTargetFist(lms) {
@@ -489,10 +783,6 @@ function isTargetFist(lms) {
 
   }
 
-
-  // --------------------------------------------------
-  // 掌心中心
-  // --------------------------------------------------
 
   const palm = {
 
@@ -528,10 +818,6 @@ function isTargetFist(lms) {
   };
 
 
-  // --------------------------------------------------
-  // 手掌寬度
-  // --------------------------------------------------
-
   const palmWidth =
     dist(
       lms[5],
@@ -549,16 +835,7 @@ function isTargetFist(lms) {
   }
 
 
-  // --------------------------------------------------
-  // 四根手指
-  //
-  // 8  = 食指尖
-  // 12 = 中指尖
-  // 16 = 無名指尖
-  // 20 = 小指尖
-  // --------------------------------------------------
-
-  const fingerTips = [
+  const tips = [
     8,
     12,
     16,
@@ -566,166 +843,221 @@ function isTargetFist(lms) {
   ];
 
 
-  let closedFingers = 0;
+  let closed =
+    0;
 
 
   for (
     const tipIndex
-    of fingerTips
+    of tips
   ) {
 
-    const tip =
-      lms[tipIndex];
-
-
-    const distanceToPalm =
-      dist(
-        tip,
-        palm
-      );
-
-
-    // ------------------------------------------------
-    // 數字越大越容易判斷成拳頭
-    // ------------------------------------------------
-
     if (
-      distanceToPalm <
-      palmWidth * 1.60
+      dist(
+        lms[tipIndex],
+        palm
+      ) <
+      palmWidth *
+      1.60
     ) {
 
-      closedFingers++;
+      closed++;
 
     }
 
   }
 
 
-  // --------------------------------------------------
-  // 拇指
-  // --------------------------------------------------
-
-  const thumbTip =
+  const thumb =
     lms[4];
 
 
   const thumbClosed =
 
     dist(
-      thumbTip,
+      thumb,
       lms[5]
     ) <
-      palmWidth * 1.65
+    palmWidth *
+    1.65
 
     ||
 
     dist(
-      thumbTip,
+      thumb,
       lms[9]
     ) <
-      palmWidth * 1.65
+    palmWidth *
+    1.65
 
     ||
 
     dist(
-      thumbTip,
+      thumb,
       palm
     ) <
-      palmWidth * 1.65;
+    palmWidth *
+    1.65;
 
-
-  // --------------------------------------------------
-  // 至少 3 根手指收起
-  // + 拇指靠近拳頭
-  // --------------------------------------------------
 
   return (
-
-    closedFingers >= 3
-
-    &&
-
+    closed >= 3 &&
     thumbClosed
-
   );
 
 }
 
-function changeFlower() {
-  currentFlower =
-    (currentFlower + 1) %
-    flowerImages.length;
-
-  bouquet.src =
-    flowerImages[currentFlower];
-}
-
-changeFlowerBtn.addEventListener(
-  "click",
-  changeFlower
-);
 
 // ======================================================
-// 畫花束
+// 換花
+// ======================================================
+
+function changeFlower() {
+
+  currentFlower =
+    (
+      currentFlower +
+      1
+    )
+    %
+    flowerImages.length;
+
+
+  bouquet.src =
+    flowerImages[
+      currentFlower
+    ];
+
+}
+
+
+if (changeFlowerBtn) {
+
+  changeFlowerBtn.addEventListener(
+    "click",
+    changeFlower
+  );
+
+}
+
+
+// ======================================================
+// 畫花
 // ======================================================
 
 function drawBouquet(m) {
+
   flowerScale +=
-    ((flowerVisible ? 1 : 0) - flowerScale) * 0.18;
 
-  if (flowerScale < 0.02) return;
+    (
+      (
+        flowerVisible
+          ? 1
+          : 0
+      )
+      -
+      flowerScale
+    )
 
-  // 圖片還沒載入完成就先不畫
-  if (!bouquet.complete || !bouquet.naturalWidth) return;
+    *
+    0.18;
 
-  const h = Math.max(
-    190,
-    Math.min(390, m.width * 5.8)
-  );
 
-  // 保持原始圖片比例
+  if (
+    flowerScale <
+    0.02
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    !bouquet.complete ||
+    !bouquet.naturalWidth
+  ) {
+
+    return;
+
+  }
+
+
+  const h =
+    Math.max(
+
+      190,
+
+      Math.min(
+
+        390,
+
+        m.width *
+        5.8
+
+      )
+
+    );
+
+
   const ratio =
     bouquet.naturalWidth /
     bouquet.naturalHeight;
 
-  const w = h * ratio;
+
+  const w =
+    h *
+    ratio;
+
 
   ctx.save();
 
-  // 拳頭的位置
+
   ctx.translate(
-    m.x - 40,
-    m.y + m.width * 0.15 + 50
+
+    m.x -
+    40,
+
+    m.y +
+    m.width *
+    0.15 +
+    50
+
   );
 
-  // 花出現動畫
+
   ctx.scale(
     flowerScale,
     flowerScale
   );
 
-  // PNG 透明背景會自動保留
+
   ctx.drawImage(
+
     bouquet,
+
     -w / 2,
-    -h * 0.91,
+
+    -h *
+    0.91,
+
     w,
+
     h
+
   );
 
+
   ctx.restore();
+
 }
 
 
 // ======================================================
-// 手勢判斷
+// 更新拳頭
 // ======================================================
 
 function updateGesture(result) {
-
-  // --------------------------------------------------
-  // 沒看到手
-  // --------------------------------------------------
 
   if (
     !result?.landmarks?.length
@@ -742,18 +1074,20 @@ function updateGesture(result) {
 
 
     if (
-      openFrames > 4
+      openFrames >
+      4
     ) {
 
-      flowerVisible = false;
+      flowerVisible =
+        false;
 
 
-      message.classList.remove(
+      message?.classList.remove(
         "show"
       );
 
 
-      hint.classList.remove(
+      hint?.classList.remove(
         "hidden"
       );
 
@@ -769,10 +1103,6 @@ function updateGesture(result) {
   }
 
 
-  // --------------------------------------------------
-  // 有看到手
-  // --------------------------------------------------
-
   const lms =
     result.landmarks[0];
 
@@ -782,90 +1112,62 @@ function updateGesture(result) {
 
 
   const m =
-    metrics(lms);
+    metrics(
+      lms
+    );
 
 
-  // --------------------------------------------------
-  // MediaPipe 自己判斷 Closed_Fist
-  //
-  // 0.20 是故意放寬
-  // --------------------------------------------------
-
-  const mediaPipeFist =
+  const mpFist =
 
     top?.categoryName ===
-      "Closed_Fist"
+    "Closed_Fist"
 
     &&
 
-    top.score > 0.20;
+    top.score >
+    0.20;
 
 
-  // --------------------------------------------------
-  // 我們自己的拳頭判斷
-  // --------------------------------------------------
+  const custom =
+    isTargetFist(
+      lms
+    );
 
-  const customFist =
-    isTargetFist(lms);
-
-
-  // --------------------------------------------------
-  // 其中一種成功
-  // 就算拳頭
-  // --------------------------------------------------
 
   const isFist =
+    mpFist ||
+    custom;
 
-    mediaPipeFist
-
-    ||
-
-    customFist;
-
-
-  // --------------------------------------------------
-  // 是拳頭
-  // --------------------------------------------------
 
   if (isFist) {
 
     fistFrames++;
 
-    openFrames = 0;
+    openFrames =
+      0;
 
-
-    hintText.textContent =
-      "就是這樣 ✨";
-
-
-    // ------------------------------------------------
-    // 連續看到兩幀拳頭就顯示
-    // ------------------------------------------------
 
     if (
-      fistFrames >= 2
+      fistFrames >=
+      2
     ) {
 
-      flowerVisible = true;
+      flowerVisible =
+        true;
 
 
-      message.classList.add(
+      message?.classList.add(
         "show"
       );
 
 
-      hint.classList.add(
+      hint?.classList.add(
         "hidden"
       );
 
     }
 
   }
-
-
-  // --------------------------------------------------
-  // 不是拳頭
-  // --------------------------------------------------
 
   else {
 
@@ -880,18 +1182,20 @@ function updateGesture(result) {
 
 
     if (
-      openFrames > 5
+      openFrames >
+      5
     ) {
 
-      flowerVisible = false;
+      flowerVisible =
+        false;
 
 
-      message.classList.remove(
+      message?.classList.remove(
         "show"
       );
 
 
-      hint.classList.remove(
+      hint?.classList.remove(
         "hidden"
       );
 
@@ -910,7 +1214,1099 @@ function updateGesture(result) {
 
 
 // ======================================================
-// Camera Loop
+// DeepLab segmentation pixel
+// → 螢幕座標
+// ======================================================
+
+function segmentationToScreen(
+  px,
+  py,
+  segWidth,
+  segHeight
+) {
+
+  const videoRect =
+    video.getBoundingClientRect();
+
+
+  const canvasRect =
+    canvas.getBoundingClientRect();
+
+
+  const sourceWidth =
+    video.videoWidth;
+
+
+  const sourceHeight =
+    video.videoHeight;
+
+
+  if (
+    !sourceWidth ||
+    !sourceHeight
+  ) {
+
+    return null;
+
+  }
+
+
+  // segmentation map 跟輸入 video
+  // 是相同比例
+  const sourceX =
+    px /
+    segWidth *
+    sourceWidth;
+
+
+  const sourceY =
+    py /
+    segHeight *
+    sourceHeight;
+
+
+  const displayWidth =
+    videoRect.width;
+
+
+  const displayHeight =
+    videoRect.height;
+
+
+  // object-fit: cover
+  const scale =
+    Math.max(
+
+      displayWidth /
+      sourceWidth,
+
+      displayHeight /
+      sourceHeight
+
+    );
+
+
+  const contentWidth =
+    sourceWidth *
+    scale;
+
+
+  const contentHeight =
+    sourceHeight *
+    scale;
+
+
+  const offsetX =
+    (
+      displayWidth -
+      contentWidth
+    ) /
+    2;
+
+
+  const offsetY =
+    (
+      displayHeight -
+      contentHeight
+    ) /
+    2;
+
+
+  let x =
+    offsetX +
+    sourceX *
+    scale;
+
+
+  let y =
+    offsetY +
+    sourceY *
+    scale;
+
+
+  // 前鏡頭 CSS 是鏡像
+  x =
+    displayWidth -
+    x;
+
+
+  x +=
+    videoRect.left -
+    canvasRect.left;
+
+
+  y +=
+    videoRect.top -
+    canvasRect.top;
+
+
+  return {
+    x,
+    y
+  };
+
+}
+
+
+// ======================================================
+// 判斷 segmentation pixel 是否為 cat
+// ======================================================
+
+function isCatPixel(
+  map,
+  index,
+  catColor
+) {
+
+  const r =
+    map[index];
+
+
+  const g =
+    map[index + 1];
+
+
+  const b =
+    map[index + 2];
+
+
+  return (
+
+    r === catColor[0]
+
+    &&
+
+    g === catColor[1]
+
+    &&
+
+    b === catColor[2]
+
+  );
+
+}
+
+
+// ======================================================
+// 判斷該點是不是「厚的貓軀體」
+//
+// 核心：
+//
+// 腿、尾巴、耳朵比較細
+// 往上下左右幾格就會離開 cat mask
+//
+// 軀體 / 背部比較厚
+// 周圍仍然是 cat
+// ======================================================
+
+function isDeepInsideCat(
+  map,
+  x,
+  y,
+  width,
+  height,
+  catColor,
+  radius
+) {
+
+  if (
+
+    x - radius < 0
+
+    ||
+
+    y - radius < 0
+
+    ||
+
+    x + radius >=
+    width
+
+    ||
+
+    y + radius >=
+    height
+
+  ) {
+
+    return false;
+
+  }
+
+
+  const checks = [
+
+    [0, 0],
+
+    [radius, 0],
+
+    [-radius, 0],
+
+    [0, radius],
+
+    [0, -radius],
+
+    [radius, radius],
+
+    [-radius, radius],
+
+    [radius, -radius],
+
+    [-radius, -radius]
+
+  ];
+
+
+  for (
+    const [dx, dy]
+    of checks
+  ) {
+
+    const px =
+      x + dx;
+
+
+    const py =
+      y + dy;
+
+
+    const index =
+      (
+        py *
+        width +
+        px
+      )
+      *
+      4;
+
+
+    if (
+      !isCatPixel(
+        map,
+        index,
+        catColor
+      )
+    ) {
+
+      return false;
+
+    }
+
+  }
+
+
+  return true;
+
+}
+
+
+// ======================================================
+// 從 cat mask 找軀體點
+// ======================================================
+
+function findCatTorsoPoints(
+  result
+) {
+
+  const {
+    segmentationMap,
+    width,
+    height,
+    legend
+  } = result;
+
+
+  const catColor =
+    legend?.cat;
+
+
+  if (!catColor) {
+
+    console.log(
+      "目前 DeepLab 沒有找到 cat"
+    );
+
+    return [];
+
+  }
+
+
+  // ==========================================
+  // 先找整個貓 mask 的範圍
+  // ==========================================
+
+  let minX =
+    width;
+
+
+  let minY =
+    height;
+
+
+  let maxX =
+    0;
+
+
+  let maxY =
+    0;
+
+
+  let catPixels =
+    0;
+
+
+  // 不需要每 pixel 都查
+  // 每 2px 查一次比較省
+  for (
+    let y = 0;
+    y < height;
+    y += 2
+  ) {
+
+    for (
+      let x = 0;
+      x < width;
+      x += 2
+    ) {
+
+      const index =
+        (
+          y *
+          width +
+          x
+        )
+        *
+        4;
+
+
+      if (
+        isCatPixel(
+          segmentationMap,
+          index,
+          catColor
+        )
+      ) {
+
+        catPixels++;
+
+
+        minX =
+          Math.min(
+            minX,
+            x
+          );
+
+
+        maxX =
+          Math.max(
+            maxX,
+            x
+          );
+
+
+        minY =
+          Math.min(
+            minY,
+            y
+          );
+
+
+        maxY =
+          Math.max(
+            maxY,
+            y
+          );
+
+      }
+
+    }
+
+  }
+
+
+  if (
+    catPixels <
+    20
+  ) {
+
+    return [];
+
+  }
+
+
+  const catWidth =
+    maxX -
+    minX;
+
+
+  const catHeight =
+    maxY -
+    minY;
+
+
+  // ==========================================
+  // 深度半徑
+  //
+  // 貓越大，就要求點離邊界越遠
+  // ==========================================
+
+  const radius =
+    Math.max(
+
+      3,
+
+      Math.round(
+
+        Math.min(
+          catWidth,
+          catHeight
+        )
+
+        *
+
+        0.045
+
+      )
+
+    );
+
+
+  const candidates =
+    [];
+
+
+  // ==========================================
+  // 找厚實區域
+  // ==========================================
+
+  const step =
+    Math.max(
+
+      5,
+
+      Math.round(
+        Math.min(
+          catWidth,
+          catHeight
+        )
+        *
+        0.045
+      )
+
+    );
+
+
+  for (
+    let y =
+      minY + radius;
+
+    y <=
+    maxY - radius;
+
+    y +=
+    step
+  ) {
+
+    for (
+      let x =
+        minX + radius;
+
+      x <=
+      maxX - radius;
+
+      x +=
+      step
+    ) {
+
+      if (
+        !isDeepInsideCat(
+
+          segmentationMap,
+
+          x,
+
+          y,
+
+          width,
+
+          height,
+
+          catColor,
+
+          radius
+
+        )
+      ) {
+
+        continue;
+
+      }
+
+
+      // ----------------------------------------
+      // 再多做一層：
+      // 最下面區域通常是腿
+      // 所以不要太靠 cat mask 底部
+      // ----------------------------------------
+
+      const normalizedY =
+        (
+          y -
+          minY
+        )
+        /
+        Math.max(
+          1,
+          catHeight
+        );
+
+
+      if (
+        normalizedY >
+        0.78
+      ) {
+
+        continue;
+
+      }
+
+
+      const screen =
+        segmentationToScreen(
+
+          x,
+
+          y,
+
+          width,
+
+          height
+
+        );
+
+
+      if (screen) {
+
+        candidates.push(
+          screen
+        );
+
+      }
+
+    }
+
+  }
+
+
+  if (
+    candidates.length ===
+    0
+  ) {
+
+    return [];
+
+  }
+
+
+  // ==========================================
+  // 不要全部畫
+  // 平均抽 MAX_BURS 個
+  // ==========================================
+
+  const selected =
+    [];
+
+
+  const count =
+    Math.min(
+      MAX_BURS,
+      candidates.length
+    );
+
+
+  const spacing =
+    candidates.length /
+    count;
+
+
+  for (
+    let i = 0;
+    i < count;
+    i++
+  ) {
+
+    const index =
+      Math.min(
+
+        candidates.length -
+        1,
+
+        Math.floor(
+          i *
+          spacing
+        )
+
+      );
+
+
+    selected.push(
+      candidates[index]
+    );
+
+  }
+
+
+  // 算貓的大概尺寸
+  const p1 =
+    segmentationToScreen(
+
+      minX,
+
+      minY,
+
+      width,
+
+      height
+
+    );
+
+
+  const p2 =
+    segmentationToScreen(
+
+      maxX,
+
+      maxY,
+
+      width,
+
+      height
+
+    );
+
+
+  let catSize =
+    150;
+
+
+  if (
+    p1 &&
+    p2
+  ) {
+
+    catSize =
+      Math.min(
+
+        Math.abs(
+          p2.x -
+          p1.x
+        ),
+
+        Math.abs(
+          p2.y -
+          p1.y
+        )
+
+      );
+
+  }
+
+
+  return selected.map(
+    (point, index) => ({
+
+      x:
+        point.x,
+
+      y:
+        point.y,
+
+      size:
+        Math.max(
+          22,
+          catSize *
+          BUR_SIZE
+        ),
+
+      rotate:
+        (
+          index *
+          47
+        )
+        %
+        70
+        -
+        35
+
+    })
+  );
+
+}
+
+
+// ======================================================
+// 平滑軀體點
+// ======================================================
+
+function smoothTorso(
+  newPoints
+) {
+
+  if (
+    !newPoints.length
+  ) {
+
+    return;
+
+  }
+
+
+  // 數量變了就直接更新
+  if (
+    smoothTorsoPoints.length !==
+    newPoints.length
+  ) {
+
+    smoothTorsoPoints =
+      newPoints.map(
+        p => ({
+          ...p
+        })
+      );
+
+
+    return;
+
+  }
+
+
+  const smoothing =
+    0.75;
+
+
+  for (
+    let i = 0;
+    i <
+    newPoints.length;
+    i++
+  ) {
+
+    smoothTorsoPoints[i].x +=
+      (
+        newPoints[i].x -
+        smoothTorsoPoints[i].x
+      )
+      *
+      smoothing;
+
+
+    smoothTorsoPoints[i].y +=
+      (
+        newPoints[i].y -
+        smoothTorsoPoints[i].y
+      )
+      *
+      smoothing;
+
+
+    smoothTorsoPoints[i].size +=
+      (
+        newPoints[i].size -
+        smoothTorsoPoints[i].size
+      )
+      *
+      smoothing;
+
+  }
+
+}
+
+
+// ======================================================
+// DeepLab 偵測貓
+// ======================================================
+
+async function segmentCat(
+  now
+) {
+
+  if (
+    !catSegmenter
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    catSegmenting
+  ) {
+
+    return;
+
+  }
+
+
+  if (
+    video.readyState <
+    2
+  ) {
+
+    return;
+
+  }
+
+
+  // ==========================================
+  // DeepLab 比 bbox 模型重
+  //
+  // 約 800ms 做一次
+  // iPhone 比較穩
+  // ==========================================
+
+  if (
+    now -
+    lastCatSegmentTime <
+    300
+  ) {
+
+    return;
+
+  }
+
+
+  lastCatSegmentTime =
+    now;
+
+
+  catSegmenting =
+    true;
+
+
+  try {
+
+    const result =
+      await catSegmenter.segment(
+        video
+      );
+
+
+    if (
+      !result.legend?.cat
+    ) {
+
+      console.log(
+        "目前沒有辨識到貓"
+      );
+
+
+      return;
+
+    }
+
+
+    console.log(
+      "🐱 DeepLab 找到 cat",
+      result.legend.cat
+    );
+
+
+    const points =
+      findCatTorsoPoints(
+        result
+      );
+
+
+    if (
+      points.length
+    ) {
+
+      catTorsoPoints =
+        points;
+
+
+      smoothTorso(
+        points
+      );
+
+
+      lastCatSeenTime =
+        performance.now();
+
+
+      console.log(
+        "🐱 軀體點：",
+        points
+      );
+
+    }
+
+  }
+
+  catch (e) {
+
+    console.error(
+      "DeepLab segmentation error:",
+      e
+    );
+
+  }
+
+  finally {
+
+    catSegmenting =
+      false;
+
+  }
+
+}
+
+
+// ======================================================
+// 畫鬼針草
+// ======================================================
+
+function drawBursOnTorso() {
+
+  if (
+    !burImage.complete ||
+    !burImage.naturalWidth
+  ) {
+
+    return;
+
+  }
+
+
+  const ratio =
+    burImage.naturalWidth /
+    burImage.naturalHeight;
+
+
+  for (
+    const point
+    of smoothTorsoPoints
+  ) {
+
+    const h =
+      point.size;
+
+
+    const w =
+      h *
+      ratio;
+
+
+    ctx.save();
+
+
+    ctx.translate(
+
+      point.x,
+
+      point.y
+
+    );
+
+
+    ctx.rotate(
+
+      point.rotate *
+
+      Math.PI /
+
+      180
+
+    );
+
+
+    ctx.drawImage(
+
+      burImage,
+
+      -w / 2,
+
+      -h / 2,
+
+      w,
+
+      h
+
+    );
+
+
+    ctx.restore();
+
+  }
+
+}
+
+
+// ======================================================
+// Debug 軀體點
+//
+// 想確認位置時可開
+// ======================================================
+
+const DEBUG_CAT_TORSO =
+  false;
+
+
+function drawTorsoDebug() {
+
+  if (
+    !DEBUG_CAT_TORSO
+  ) {
+
+    return;
+
+  }
+
+
+  ctx.save();
+
+
+  ctx.fillStyle =
+    "#00ff00";
+
+
+  for (
+    const point
+    of smoothTorsoPoints
+  ) {
+
+    ctx.beginPath();
+
+
+    ctx.arc(
+
+      point.x,
+
+      point.y,
+
+      8,
+
+      0,
+
+      Math.PI *
+      2
+
+    );
+
+
+    ctx.fill();
+
+  }
+
+
+  ctx.restore();
+
+}
+
+
+// ======================================================
+// Loop
 // ======================================================
 
 function loop() {
@@ -925,17 +2321,23 @@ function loop() {
   ctx.clearRect(
 
     0,
+
     0,
 
     innerWidth,
+
     innerHeight
 
   );
 
 
-  // --------------------------------------------------
-  // MediaPipe 辨識
-  // --------------------------------------------------
+  const now =
+    performance.now();
+
+
+  // ====================================================
+  // 拳頭
+  // ====================================================
 
   if (
 
@@ -943,12 +2345,13 @@ function loop() {
 
     &&
 
-    video.readyState >= 2
+    video.readyState >=
+    2
 
     &&
 
     video.currentTime !==
-      lastVideoTime
+    lastVideoTime
 
   ) {
 
@@ -959,31 +2362,35 @@ function loop() {
     try {
 
       lastResult =
+        recognizer
+          .recognizeForVideo(
 
-        recognizer.recognizeForVideo(
+            video,
 
-          video,
+            now
 
-          performance.now()
-
-        );
+          );
 
     }
 
     catch (e) {
 
-      console.error(e);
+      console.error(
+        e
+      );
 
     }
 
   }
 
 
-  // --------------------------------------------------
-  // 判斷拳頭 + 畫花
-  // --------------------------------------------------
+  // ====================================================
+  // 花
+  // ====================================================
 
-  if (lastResult) {
+  if (
+    lastResult
+  ) {
 
     const m =
       updateGesture(
@@ -993,9 +2400,65 @@ function loop() {
 
     if (m) {
 
-      drawBouquet(m);
+      drawBouquet(
+        m
+      );
 
     }
+
+  }
+
+
+  // ====================================================
+  // DeepLab 找貓
+  // ====================================================
+
+  segmentCat(
+    now
+  );
+
+
+  // ====================================================
+  // 貓軀體上的鬼針草
+  // ====================================================
+
+  if (
+
+    smoothTorsoPoints.length
+
+    &&
+
+    now -
+    lastCatSeenTime <
+
+    1800
+
+  ) {
+
+    drawTorsoDebug();
+
+
+    drawBursOnTorso();
+
+  }
+
+
+  // 超過一段時間沒看到貓就清掉
+  else if (
+
+    now -
+    lastCatSeenTime >=
+
+    1800
+
+  ) {
+
+    catTorsoPoints =
+      [];
+
+
+    smoothTorsoPoints =
+      [];
 
   }
 
@@ -1008,7 +2471,7 @@ function loop() {
 
 
 // ======================================================
-// Events
+// Event
 // ======================================================
 
 startBtn.addEventListener(
@@ -1038,7 +2501,6 @@ window.addEventListener(
   "orientationchange",
 
   () =>
-
     setTimeout(
 
       resizeCanvas,
