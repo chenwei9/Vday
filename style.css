@@ -43,4 +43,15 @@ button:disabled{opacity:.6}
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
+#video {
+  position: absolute;
+  inset: 0;
+
+  width: 100%;
+  height: 100%;
+
+  object-fit: cover;
+
+  transform: scaleX(-1);
+}
 @keyframes beat{0%,100%{transform:scale(1)}45%{transform:scale(1.12)}}
